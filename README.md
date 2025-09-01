@@ -37,8 +37,8 @@
 CREATE TABLE nats_data (
 timestamp DateTime64(3),
 subject String,
-metadata String,
-data String
+metadata JSON ,
+data JSON
 ) ENGINE = MergeTree()
 ORDER BY (timestamp);
 ```

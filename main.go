@@ -12,11 +12,10 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-// Определение структуры для входящего сообщения NATS
-type NatsMessage struct {
-	Metadata map[string]interface{} `json:"metadata"`
-	Subject  string                 `json:"subject"`
-	Data     map[string]interface{} `json:"data"`
+// Определение структуры для полезной нагрузки сообщения NATS
+// (часть, которая содержится в msg.Data)
+type NatsPayload struct {
+	Data map[string]interface{} `json:"data"`
 }
 
 func main() {
@@ -26,12 +25,17 @@ func main() {
 	if natsURL == "" {
 		natsURL = "nats://localhost:4222"
 	}
-	natsSubject := "data.stream"
+	natsSubject := "test.>"
 
 	clickhouseHost := os.Getenv("CLICKHOUSE_HOST")
 	if clickhouseHost == "" {
 		clickhouseHost = "localhost"
 	}
+	clickhouseUser := os.Getenv("CLICKHOUSE_USERNAME")
+	if clickhouseUser == "" {
+		clickhouseUser = "default"
+	}
+	clickhousePassword := os.Getenv("CLICKHOUSE_PASSWORD")
 
 	// 1. Подключение к NATS
 	nc, err := nats.Connect(natsURL)
@@ -42,7 +46,7 @@ func main() {
 	log.Printf("Успешно подключено к NATS по адресу: %s", natsURL)
 
 	// Подключение к ClickHouse
-	chConnect, err := connectToClickHouse(clickhouseHost)
+	chConnect, err := connectToClickHouse(clickhouseHost, clickhouseUser, clickhousePassword)
 	if err != nil {
 		log.Fatalf("Ошибка подключения к ClickHouse: %v", err)
 	}
@@ -57,20 +61,24 @@ func main() {
 
 		// Стандартная подписка NATS
 		_, err = nc.Subscribe(natsSubject, func(msg *nats.Msg) {
-			processMessage(chConnect, msg.Data)
+			processMessage(chConnect, msg)
 		})
 		if err != nil {
 			log.Fatalf("Ошибка подписки на NATS: %v", err)
 		}
 	} else {
-		// Подписка на JetStream с автоматическим подтверждением
-		_, err = js.Subscribe(natsSubject, func(msg *nats.Msg) {
-			processMessage(chConnect, msg.Data)
+		// Подписка на JetStream с durable-консьюмером и группой доставки для надежности и масштабирования
+		const durableConsumerName = "nats-clickhouse-durable"
+		const deliveryGroupName = "nats-clickhouse-delivery-group"
+
+		_, err = js.QueueSubscribe(natsSubject, deliveryGroupName, func(msg *nats.Msg) {
+			processMessage(chConnect, msg)
 			msg.Ack() // Подтверждение получения сообщения
-		})
+		}, nats.Durable(durableConsumerName))
 		if err != nil {
 			log.Fatalf("Ошибка подписки на JetStream: %v", err)
 		}
+
 	}
 
 	log.Printf("Сервис запущен и ожидает сообщения на топике '%s'...", natsSubject)
@@ -80,20 +88,20 @@ func main() {
 }
 
 // connectToClickHouse устанавливает соединение с базой данных ClickHouse
-func connectToClickHouse(host string) (clickhouse.Conn, error) {
+func connectToClickHouse(host, user, password string) (clickhouse.Conn, error) {
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{fmt.Sprintf("%s:9000", host)},
 		Auth: clickhouse.Auth{
 			Database: "default",
-			Username: "default",
-			Password: "",
+			Username: user,
+			Password: password,
 		},
 		ClientInfo: clickhouse.ClientInfo{
 			Products: []struct {
 				Name    string
-				Version uint64
+				Version string
 			}{
-				{Name: "nats-clickhouse-transfer", Version: 1},
+				{Name: "nats-clickhouse-transfer", Version: "1"},
 			},
 		},
 		Settings: clickhouse.Settings{
@@ -113,42 +121,38 @@ func connectToClickHouse(host string) (clickhouse.Conn, error) {
 }
 
 // processMessage обрабатывает полученные данные и вставляет их в ClickHouse
-func processMessage(conn clickhouse.Conn, data []byte) {
-	var msg NatsMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
-		log.Printf("Ошибка декодирования JSON: %v. Данные: %s", err, string(data))
-		return
-	}
-
-	// Преобразование JSON-объектов в строки для вставки в ClickHouse
-	metadataJSON, err := json.Marshal(msg.Metadata)
-	if err != nil {
-		log.Printf("Ошибка сериализации metadata: %v", err)
-		metadataJSON = []byte("{}")
-	}
-
-	dataJSON, err := json.Marshal(msg.Data)
-	if err != nil {
-		log.Printf("Ошибка сериализации data: %v", err)
-		dataJSON = []byte("{}")
+func processMessage(conn clickhouse.Conn, msg *nats.Msg) {
+	// Декодируем только полезную нагрузку
+	var payload NatsPayload
+	if len(msg.Data) > 0 {
+		if err := json.Unmarshal(msg.Data, &payload); err != nil {
+			log.Printf("Ошибка декодирования JSON: %v. Данные: %s", err, string(msg.Data))
+			return
+		}
 	}
 
 	// Вставка данных
-	// Используем пакетную вставку (Batch) для лучшей производительности
 	batch, err := conn.PrepareBatch(context.Background(), "INSERT INTO nats_data (timestamp, subject, metadata, data)")
 	if err != nil {
 		log.Printf("Ошибка подготовки пакета для вставки: %v", err)
 		return
 	}
 
-	// Используем время получения сообщения
+	// Задаем время вставки.
 	now := time.Now()
+
+	// Извлекаем метаданные из сообщения
+	mtd, err := msg.Metadata()
+	if err != nil {
+		log.Printf("Ошибка получения метаданных: %v", err)
+		return
+	}
 
 	err = batch.Append(
 		now,
 		msg.Subject,
-		string(metadataJSON),
-		string(dataJSON),
+		mtd,
+		msg.Data,
 	)
 	if err != nil {
 		log.Printf("Ошибка добавления данных в пакет: %v", err)
