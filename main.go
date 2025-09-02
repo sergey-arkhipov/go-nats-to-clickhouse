@@ -1,8 +1,11 @@
 package main
 
 import (
+	"clhs-service/config"
+	"clhs-service/logger"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/nats-io/nats.go"
+	"github.com/sirupsen/logrus"
 )
 
 // Настройки батчинга
@@ -20,22 +24,32 @@ const (
 )
 
 func main() {
-	natsURL := os.Getenv("NATS_URL")
-	if natsURL == "" {
-		natsURL = "nats://localhost:4222"
+	// Set logging params
+	logrus.SetLevel(logrus.InfoLevel) // Normal log
+	logger.Init(logrus.InfoLevel, os.Getenv("FORCE_COLORS") == "1")
+
+	// Configuration. Checked inside loading
+	configFile := flag.String("config", "nats.yml", "Path to config file")
+	flag.Parse()
+
+	cfg, err := config.Load(*configFile)
+	if err != nil {
+		logrus.WithError(err).Fatal("Failed to load configuration")
 	}
+	// Вывод конфигурации (опционально)
+	logger.ConfigBanner(*cfg)
+	// Set formatter for production
+	if cfg.Log.Format == "json" {
+		logrus.SetFormatter(&logrus.JSONFormatter{})
+	}
+	// Set debug log level
+	if cfg.Log.Level == "debug" {
+		logrus.SetLevel(logrus.DebugLevel) // Включаем Debug
+	}
+
+	natsURL := cfg.Nats.URL
 	// Использование рабочего subject
 	natsSubject := "test.>"
-
-	clickhouseHost := os.Getenv("CLICKHOUSE_HOST")
-	if clickhouseHost == "" {
-		clickhouseHost = "localhost"
-	}
-	clickhouseUser := os.Getenv("CLICKHOUSE_USERNAME")
-	if clickhouseUser == "" {
-		clickhouseUser = "default"
-	}
-	clickhousePassword := os.Getenv("CLICKHOUSE_PASSWORD")
 
 	// 1. Подключение к NATS
 	nc, err := nats.Connect(natsURL)
@@ -45,21 +59,21 @@ func main() {
 	defer nc.Close()
 	log.Printf("Успешно подключено к NATS по адресу: %s", natsURL)
 
-	// Подключение к ClickHouse
-	chConnect, err := connectToClickHouse(clickhouseHost, clickhouseUser, clickhousePassword)
+	// 2. Подключение к ClickHouse
+	chConnect, err := connectToClickHouse(&cfg.ClickHouse)
 	if err != nil {
 		log.Fatalf("Ошибка подключения к ClickHouse: %v", err)
 	}
 	defer chConnect.Close()
 	log.Println("Успешно подключено к ClickHouse")
 
-	// 2. Создание канала для передачи сообщений батчеру
+	// 3. Создание канала для передачи сообщений батчеру
 	messagesCh := make(chan *nats.Msg, batchSize)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go batchProcessor(chConnect, messagesCh, &wg)
 
-	// 3. Подписка на стрим и отправка сообщений в канал
+	// 4. Подписка на стрим и отправка сообщений в канал
 	js, err := nc.JetStream()
 	if err != nil {
 		log.Fatalf("JetStream недоступен, не могу продолжить: %v", err)
@@ -83,13 +97,13 @@ func main() {
 }
 
 // connectToClickHouse устанавливает соединение с базой данных ClickHouse
-func connectToClickHouse(host, user, password string) (clickhouse.Conn, error) {
+func connectToClickHouse(config *config.ClickHouseConfig) (clickhouse.Conn, error) {
 	conn, err := clickhouse.Open(&clickhouse.Options{
-		Addr: []string{fmt.Sprintf("%s:9000", host)},
+		Addr: []string{fmt.Sprintf("%s:9000", config.Hostname)},
 		Auth: clickhouse.Auth{
 			Database: "default",
-			Username: user,
-			Password: password,
+			Username: config.Username,
+			Password: config.Password,
 		},
 		ClientInfo: clickhouse.ClientInfo{
 			Products: []struct {
