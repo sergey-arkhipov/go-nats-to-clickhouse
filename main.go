@@ -84,7 +84,10 @@ func main() {
 
 	_, err = js.QueueSubscribe(natsSubject, deliveryGroupName, func(msg *nats.Msg) {
 		messagesCh <- msg
-		msg.Ack() // Подтверждение получения сообщения
+		err = msg.Ack() // Подтверждение получения сообщения
+		if err != nil {
+			logrus.Error("Failed to ack message", err)
+		}
 	}, nats.Durable(durableConsumerName))
 	if err != nil {
 		log.Fatalf("Ошибка подписки на JetStream: %v", err)

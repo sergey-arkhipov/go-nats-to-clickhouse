@@ -1,0 +1,10 @@
+# .golangci.yml
+
+linters:
+  enable:
+    - govet
+    - gocyclo
+    - golint
+  disable:
+    - dupl
+    - prealloc
