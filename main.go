@@ -6,15 +6,15 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
-	"log"
+	"fmt" // Алиас для стандартной библиотеки log
 	"os"
 	"sync"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/nats-io/nats.go"
-	"github.com/sirupsen/logrus"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 // Настройки батчинга
@@ -24,28 +24,38 @@ const (
 )
 
 func main() {
-	// Set logging params
-	logrus.SetLevel(logrus.InfoLevel) // Normal log
-	logger.Init(logrus.InfoLevel, os.Getenv("FORCE_COLORS") == "1")
-
-	// Configuration. Checked inside loading
+	// 1. Сначала загружаем конфигурацию
 	configFile := flag.String("config", "nats.yml", "Path to config file")
 	flag.Parse()
 
 	cfg, err := config.Load(*configFile)
 	if err != nil {
-		logrus.WithError(err).Fatal("Failed to load configuration")
+		// Если ошибка в загрузке конфига, используем стандартный логгер для вывода
+		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
+		os.Exit(1)
 	}
-	// Вывод конфигурации (опционально)
-	logger.ConfigBanner(*cfg)
-	// Set formatter for production
-	if cfg.Log.Format == "json" {
-		logrus.SetFormatter(&logrus.JSONFormatter{})
+
+	// 2. Определяем уровень логирования из конфига
+	var logLevel zerolog.Level
+	switch cfg.Log.Level {
+	case "debug":
+		logLevel = zerolog.DebugLevel
+	case "warn":
+		logLevel = zerolog.WarnLevel
+	case "error":
+		logLevel = zerolog.ErrorLevel
+	case "info":
+		logLevel = zerolog.InfoLevel
+	default:
+		logLevel = zerolog.InfoLevel // Значение по умолчанию
 	}
-	// Set debug log level
-	if cfg.Log.Level == "debug" {
-		logrus.SetLevel(logrus.DebugLevel) // Включаем Debug
-	}
+
+	// 3. Инициализируем логгер с нужным уровнем и форматом
+	// Здесь мы используем вашу новую функцию Init из модуля logger
+	logger.Init(logLevel, os.Getenv("FORCE_COLORS") == "1", cfg.Log.Format)
+
+	// 4. Выводим конфигурацию (по желанию)
+	logger.ConfigBanner(*cfg, true)
 
 	natsURL := cfg.Nats.URL
 	// Использование рабочего subject
@@ -54,18 +64,18 @@ func main() {
 	// 1. Подключение к NATS
 	nc, err := nats.Connect(natsURL)
 	if err != nil {
-		log.Fatalf("Ошибка подключения к NATS: %v", err)
+		log.Fatal().Err(err).Msg("Ошибка подключения к NATS")
 	}
 	defer nc.Close()
-	log.Printf("Успешно подключено к NATS по адресу: %s", natsURL)
+	log.Info().Msgf("Успешно подключено к NATS по адресу: %s", natsURL)
 
 	// 2. Подключение к ClickHouse
 	chConnect, err := connectToClickHouse(&cfg.ClickHouse)
 	if err != nil {
-		log.Fatalf("Ошибка подключения к ClickHouse: %v", err)
+		log.Fatal().Err(err).Msg("Ошибка подключения к ClickHouse")
 	}
 	defer chConnect.Close()
-	log.Println("Успешно подключено к ClickHouse")
+	log.Info().Msg("Успешно подключено к ClickHouse")
 
 	// 3. Создание канала для передачи сообщений батчеру
 	messagesCh := make(chan *nats.Msg, batchSize)
@@ -76,7 +86,7 @@ func main() {
 	// 4. Подписка на стрим и отправка сообщений в канал
 	js, err := nc.JetStream()
 	if err != nil {
-		log.Fatalf("JetStream недоступен, не могу продолжить: %v", err)
+		log.Fatal().Err(err).Msg("JetStream недоступен, не могу продолжить")
 	}
 
 	const durableConsumerName = "nats-clickhouse-durable"
@@ -86,11 +96,11 @@ func main() {
 		messagesCh <- msg
 		err = msg.Ack() // Подтверждение получения сообщения
 		if err != nil {
-			logrus.Error("Failed to ack message", err)
+			log.Fatal().Err(err).Msg("Failed to ack message")
 		}
 	}, nats.Durable(durableConsumerName))
 	if err != nil {
-		log.Fatalf("Ошибка подписки на JetStream: %v", err)
+		log.Fatal().Err(err).Msg("Ошибка подписки на JetStream")
 	}
 
 	log.Printf("Сервис запущен и ожидает сообщения на топике '%s'...", natsSubject)
@@ -150,7 +160,7 @@ func batchProcessor(conn clickhouse.Conn, messagesCh <-chan *nats.Msg, wg *sync.
 			}
 		case <-ticker.C:
 			if len(buffer) > 0 {
-				log.Println("Таймаут истек, отправляем оставшиеся сообщения")
+				log.Warn().Msg("Таймаут истек, отправляем оставшиеся сообщения")
 				sendBatch(conn, buffer)
 				buffer = make([]*nats.Msg, 0, batchSize)
 			}
