@@ -4,7 +4,7 @@ go 1.24.6
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.1
-	github.com/logrusorgru/aurora/v3 v3.0.0
+	github.com/fatih/color v1.18.0
 	github.com/nats-io/nats.go v1.45.0
 	github.com/rs/zerolog v1.34.0
 	github.com/sirupsen/logrus v1.9.3
@@ -23,7 +23,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
-	github.com/mattn/go-isatty v0.0.19 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/paulmach/orb v0.11.1 // indirect

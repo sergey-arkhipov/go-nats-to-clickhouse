@@ -13,6 +13,7 @@ services:
       - clickhouse-data:/var/lib/clickhouse
       - ./clickhouse-config/users.xml:/etc/clickhouse-server/users.xml
       - ./clickhouse-config/config.xml:/etc/clickhouse-server/config.xml
+      - ./clickhouse-config/init/:/docker-entrypoint-initdb.d
     environment:
       - CLICKHOUSE_USER=clhs
       - CLICKHOUSE_PASSWORD=password

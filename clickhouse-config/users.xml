@@ -107,8 +107,7 @@
             </networks>
             <profile>default</profile>
             <quota>default</quota>
-            <!-- Включите SQL управление, если нужно управлять правами через SQL -->
-            <access_management>1</access_management>
+            <!-- Включите SQL управление, если нужно управлять правами через SQL                               <access_management>1</access_management> -->
         </clhs>
     </users>
 

@@ -1,96 +1,134 @@
-// Package logger setup loger
+// logger/logger.go
 package logger
 
 import (
 	"clhs-service/config"
+	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/logrusorgru/aurora/v3"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"github.com/fatih/color"
 )
 
-var au aurora.Aurora
+// Init initializes the global slog logger.
+func Init(cfg config.LogConfig, useColors bool) {
+	logLevel := parseLogLevel(cfg.Level)
+	var output io.Writer = os.Stdout
 
-// colorizeLevel maps a zerolog.Level to a colorized string using aurora.
-func colorizeLevel(level zerolog.Level, text string) string {
-	// Your colorization logic
-	switch level {
-	case zerolog.ErrorLevel:
-		return au.Red(text).String()
-	case zerolog.WarnLevel:
-		return au.Yellow(text).String()
-	case zerolog.InfoLevel:
-		return au.Green(text).String()
-	case zerolog.DebugLevel, zerolog.TraceLevel:
-		return au.Blue(text).String()
-	default:
-		return au.Gray(12, text).String()
-	}
-}
-
-// Init initializes the zerolog logger with custom console output.
-// It now takes a 'format' string to choose between console and JSON.
-func Init(level zerolog.Level, useColors bool, format string) {
-	zerolog.SetGlobalLevel(level)
-
-	// Check if the format is JSON
-	if format == "json" {
-		log.Logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
-		return
-	}
-
-	// Default to console output
-	au = aurora.NewAurora(useColors || isTerminal())
-	output := zerolog.ConsoleWriter{
-		Out:        os.Stdout,
-		NoColor:    !useColors,
-		TimeFormat: time.DateTime,
-	}
-
-	output.FormatLevel = func(i any) string {
-		var text string
-		if ll, ok := i.(string); ok {
-			text = strings.ToUpper(ll)
-		} else {
-			text = "???"
-		}
-		return fmt.Sprintf("%-6s", colorizeLevel(zerolog.Level(level), text))
-	}
-
-	log.Logger = zerolog.New(output).With().Timestamp().Logger()
-}
-
-// isTerminal checks if the output is a terminal.
-func isTerminal() bool {
-	fileInfo, _ := os.Stdout.Stat()
-	return (fileInfo.Mode() & os.ModeCharDevice) != 0
-}
-
-func ConfigBanner(cfg config.Config, useColors bool) {
-	auLocal := aurora.NewAurora(useColors || isTerminal())
-	banner := fmt.Sprintf(
-		"\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
-		auLocal.BrightBlue("===== Loaded config ========"),
-		auLocal.Cyan(fmt.Sprintf("%-12s: %s", "NATS_URL", cfg.Nats.URL)),
-		auLocal.Cyan(fmt.Sprintf("%-12s: %s", "Clickhouse host", cfg.ClickHouse.Hostname)),
-		auLocal.Cyan(fmt.Sprintf("%-12s: %s", "Clickhouse user", cfg.ClickHouse.Username)),
-		auLocal.Cyan(fmt.Sprintf("%-12s: %s", "Clickhouse pass", cfg.ClickHouse.Password)),
-		auLocal.Cyan(fmt.Sprintf("%-12s: %s", "Log format", cfg.Log.Format)),
-		auLocal.Cyan(fmt.Sprintf("%-12s: %s", "Log level", cfg.Log.Level)),
-		auLocal.BrightBlue("============================"),
-	)
-
-	// A more idiomatic approach for JSON format would be to log the config as a JSON object
-	if cfg.Log.Format == "json" {
-		log.Info().
-			Str("message", "Starting service...").
-			Interface("config", cfg).
-			Msg("Configuration Loaded")
+	if cfg.Format == "json" {
+		handler := slog.NewJSONHandler(output, &slog.HandlerOptions{
+			Level: logLevel,
+		})
+		slog.SetDefault(slog.New(handler))
 	} else {
-		log.Info().Msg("Starting service ..." + banner)
+		handler := newCustomConsoleHandler(output, &slog.HandlerOptions{
+			Level: logLevel,
+		})
+		slog.SetDefault(slog.New(handler))
+	}
+}
+
+// ConfigBanner outputs the service configuration banner.
+func ConfigBanner(cfg config.Config, useColors bool) {
+	// ... (Ваш код для ConfigBanner остается без изменений) ...
+	if cfg.Log.Format == "json" {
+		slog.Info("Configuration Loaded", "config", cfg)
+	} else {
+		banner := fmt.Sprintf(
+			"\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
+			color.New(color.FgHiBlue).Sprint("===== Loaded config ========"),
+			color.CyanString("%-12s: %s", "NATS_URL", cfg.Nats.URL),
+			color.CyanString("%-12s: %s", "Clickhouse host", cfg.ClickHouse.Hostname),
+			color.CyanString("%-12s: %s", "Clickhouse user", cfg.ClickHouse.Username),
+			color.CyanString("%-12s: %s", "Clickhouse pass", cfg.ClickHouse.Password),
+			color.CyanString("%-12s: %s", "Log format", cfg.Log.Format),
+			color.CyanString("%-12s: %s", "Log level", cfg.Log.Level),
+			color.New(color.FgHiBlue).Sprint("============================"),
+		)
+		fmt.Println("Starting service ..." + banner)
+	}
+}
+
+// newCustomConsoleHandler creates a custom handler that formats logs for console with colors.
+func newCustomConsoleHandler(w io.Writer, opts *slog.HandlerOptions) slog.Handler {
+	return &CustomConsoleHandler{
+		handler: slog.NewTextHandler(w, &slog.HandlerOptions{
+			Level:       opts.Level,
+			ReplaceAttr: opts.ReplaceAttr,
+		}),
+	}
+}
+
+// CustomConsoleHandler is a wrapper around TextHandler to customize output.
+type CustomConsoleHandler struct {
+	handler slog.Handler
+}
+
+// Handle implements the slog.Handler interface.
+func (h *CustomConsoleHandler) Handle(ctx context.Context, r slog.Record) error {
+	// Customize the time and level output here.
+	timeStr := r.Time.Format(time.DateTime)
+	levelStr := colorizeLevel(r.Level, strings.ToUpper(r.Level.String()))
+
+	// Print time and colored level directly.
+	fmt.Fprintf(os.Stdout, "%s | %s | ", timeStr, levelStr)
+
+	// Delegate the rest of the record to the default handler.
+	// This ensures attributes (key=value pairs) are formatted correctly.
+	r.Message = r.Message
+	r.Level = slog.LevelInfo // Use a neutral level to avoid redundant level output
+	r.Time = time.Time{}     // Clear time to prevent it from being printed again
+
+	return h.handler.Handle(ctx, r)
+}
+
+// WithAttrs returns a new handler that is a copy of the current handler with the given attributes added.
+func (h *CustomConsoleHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &CustomConsoleHandler{handler: h.handler.WithAttrs(attrs)}
+}
+
+// WithGroup returns a new handler that is a copy of the current handler with the given group name added.
+func (h *CustomConsoleHandler) WithGroup(name string) slog.Handler {
+	return &CustomConsoleHandler{handler: h.handler.WithGroup(name)}
+}
+
+// Enabled reports whether the handler handles a record with the given level and context.
+func (h *CustomConsoleHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.handler.Enabled(ctx, level)
+}
+
+// parseLogLevel converts a string to slog.Level.
+func parseLogLevel(level string) slog.Level {
+	switch level {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	case "info":
+		return slog.LevelInfo
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// colorizeLevel maps a slog.Level to a colorized string using fatih/color.
+func colorizeLevel(level slog.Level, text string) string {
+	switch level {
+	case slog.LevelError:
+		return color.RedString(text)
+	case slog.LevelWarn:
+		return color.YellowString(text)
+	case slog.LevelInfo:
+		return color.GreenString(text)
+	case slog.LevelDebug:
+		return color.BlueString(text)
+	default:
+		return text
 	}
 }
