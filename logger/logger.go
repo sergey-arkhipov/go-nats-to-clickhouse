@@ -1,4 +1,4 @@
-// logger/logger.go
+// Package logger set logging config and print banner with configuration
 package logger
 
 import (
@@ -15,7 +15,7 @@ import (
 )
 
 // Init initializes the global slog logger.
-func Init(cfg config.LogConfig, useColors bool) {
+func Init(cfg config.LogConfig) {
 	logLevel := parseLogLevel(cfg.Level)
 	var output io.Writer = os.Stdout
 
@@ -33,10 +33,10 @@ func Init(cfg config.LogConfig, useColors bool) {
 }
 
 // ConfigBanner outputs the service configuration banner.
-func ConfigBanner(cfg config.Config, useColors bool) {
-	// ... (Ваш код для ConfigBanner остается без изменений) ...
+func ConfigBanner(cfg config.Config) {
 	if cfg.Log.Format == "json" {
 		slog.Info("Configuration Loaded", "config", cfg)
+		slog.Info("Service started")
 	} else {
 		banner := fmt.Sprintf(
 			"\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
@@ -79,7 +79,6 @@ func (h *CustomConsoleHandler) Handle(ctx context.Context, r slog.Record) error 
 
 	// Delegate the rest of the record to the default handler.
 	// This ensures attributes (key=value pairs) are formatted correctly.
-	r.Message = r.Message
 	r.Level = slog.LevelInfo // Use a neutral level to avoid redundant level output
 	r.Time = time.Time{}     // Clear time to prevent it from being printed again
 

@@ -47,9 +47,7 @@ ORDER BY (timestamp,chat_id,sequence);
 
 -- Перенос данных из таблиц логов в общую таблицу для организации
 CREATE MATERIALIZED VIEW nats_data_stream_supprt_mv
-ENGINE = MergeTree()
-PARTITION BY toYYYYMM(timestamp)
-ORDER BY (timestamp, subject)
+TO nats_data_all_streams
 AS SELECT
     timestamp,
     subject,
@@ -62,9 +60,7 @@ FROM nats_data_stream_supprt;
 -- Перенос данных из таблиц логов в общую таблицу для организации
 
 CREATE MATERIALIZED VIEW nats_data_stream_crmabc_mv
-ENGINE = MergeTree()
-PARTITION BY toYYYYMM(timestamp)
-ORDER BY (timestamp, subject)
+TO nats_data_all_streams
 AS SELECT
     timestamp,
     subject,
@@ -111,8 +107,8 @@ SELECT
     `metadata`,
     `data` ,
     JSONExtractString(data, 'text') AS message_text,
-    JSONExtractUInt(data, 'meta') AS message_meta,
-    JSONExtractUInt(data, 'id') AS message_id,
+    JSONExtractString(data, 'meta') AS message_meta,
+    JSONExtractString(data, 'id') AS message_id,
     JSONExtractUInt(data, 'timestamp') AS message_timestamp,
     splitByChar('.', subject)[1] AS client_code,
     splitByChar('.', subject)[2] AS project_code,

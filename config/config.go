@@ -33,6 +33,7 @@ type Config struct {
 	Nats       NatsConfig       `mapstructure:"nats"`
 	ClickHouse ClickHouseConfig `mapstructure:"clickhouse"`
 	Log        LogConfig        `mapstructure:"log"`
+	Subjects   []string         `mapstructure:"subjects"`
 }
 
 // Load loads the configuration using viper, supporting YAML and environment variables.

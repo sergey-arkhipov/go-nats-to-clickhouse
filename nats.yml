@@ -7,3 +7,6 @@ clickhouse:
 log:
   format: "text"
   level: "info"
+subjects:
+  - "globex.supprt.>"
+  - "globex.crmabc.>"
