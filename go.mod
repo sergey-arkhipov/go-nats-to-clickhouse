@@ -1,13 +1,11 @@
 module clhs-service
 
-go 1.24.6
+go 1.25
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.1
 	github.com/fatih/color v1.18.0
 	github.com/nats-io/nats.go v1.45.0
-	github.com/rs/zerolog v1.34.0
-	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
 )

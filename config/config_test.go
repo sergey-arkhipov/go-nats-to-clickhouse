@@ -2,10 +2,10 @@ package config_test
 
 import (
 	"clhs-service/config"
+	"log"
 	"os"
 	"testing"
 
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,7 +14,7 @@ import (
 // removeTmpFile удаляет временный файл и логирует ошибку, если удаление не удалось.
 func removeTmpFile(tmpFile *os.File) {
 	if err := os.Remove(tmpFile.Name()); err != nil {
-		logrus.Errorf("failed to remove temporary file %s: %v", tmpFile.Name(), err)
+		log.Fatalf("failed to remove temporary file %s: %v", tmpFile.Name(), err)
 	}
 }
 
@@ -47,6 +47,8 @@ clickhouse:
   hostname: host1
 log:
   format: json
+subjects:
+  - "test.>"
 `)
 		defer removeTmpFile(tmpFile)
 
@@ -55,6 +57,7 @@ log:
 
 		assert.Equal(t, "nats://test:4222", cfg.Nats.URL)
 		assert.Equal(t, "default", cfg.ClickHouse.Username)
+		assert.Equal(t, "test.>", cfg.Subjects[0])
 	})
 
 	t.Run("successful load with environment variables", func(t *testing.T) {

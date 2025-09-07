@@ -2,6 +2,7 @@ package main
 
 import (
 	"clhs-service/config"
+	"clhs-service/connection"
 	"clhs-service/logger"
 	"context"
 	"encoding/json"
@@ -61,26 +62,15 @@ func main() {
 	}()
 
 	// ========== Connection setup ==========
-	// 1. Подключение к NATS
-	natsURL := cfg.Nats.URL
-	nc, err := nats.Connect(natsURL)
-	if err != nil {
-		slog.Error("Ошибка подключения к NATS")
-		os.Exit(1)
-	} else {
-		defer nc.Close()
-		slog.Info("Успешно подключено к NATS по адресу:", "NATS_URL", natsURL)
-	}
-	// 2. Подключение к ClickHouse
-	chConnect, err := connectToClickHouse(ctx, &cfg.ClickHouse)
-	if err != nil {
-		slog.Error("Ошибка подключения к ClickHouse", "Error:", err)
-		os.Exit(1)
-	} else {
-		defer chConnect.Close()
-		slog.Info("Успешно подключено к ClickHouse")
-	}
-	// ========== Main block ==========
+	// Connect to NATS
+	nc := connection.ConnectNATS(cfg.Nats.URL)
+	defer nc.Close() // Keep defer in main to ensure connection is closed at exit
+
+	// Connect to ClickHouse
+	chConnect := connection.ConnectClickHouse(ctx, &cfg.ClickHouse)
+	defer chConnect.Close() // Keep defer in main as well
+
+	slog.Info("Application started successfully!") // ========== Main block ==========
 	// Создание канала для передачи сообщений батчеру
 	messagesCh := make(chan *nats.Msg, batchSize)
 	var wg sync.WaitGroup
@@ -116,39 +106,6 @@ func main() {
 
 // ========== End of Main block ==========
 
-// connectToClickHouse устанавливает соединение с базой данных ClickHouse
-func connectToClickHouse(context context.Context, config *config.ClickHouseConfig) (clickhouse.Conn, error) {
-	conn, err := clickhouse.Open(&clickhouse.Options{
-		Addr: []string{fmt.Sprintf("%s:9000", config.Hostname)},
-		Auth: clickhouse.Auth{
-			Database: "default",
-			Username: config.Username,
-			Password: config.Password,
-		},
-		ClientInfo: clickhouse.ClientInfo{
-			Products: []struct {
-				Name    string
-				Version string
-			}{
-				{Name: "nats-clickhouse-transfer", Version: "1"},
-			},
-		},
-		Settings: clickhouse.Settings{
-			"max_execution_time": 60,
-		},
-		Compression: &clickhouse.Compression{
-			Method: clickhouse.CompressionLZ4,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	if err := conn.Ping(context); err != nil {
-		return nil, err
-	}
-	return conn, nil
-}
-
 // batchProcessor принимает сообщения из канала, накапливает их и отправляет батчами
 func batchProcessor(ctx context.Context, conn clickhouse.Conn, messagesCh <-chan *nats.Msg, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -162,14 +119,21 @@ func batchProcessor(ctx context.Context, conn clickhouse.Conn, messagesCh <-chan
 		case msg := <-messagesCh:
 			buffer = append(buffer, msg)
 			if len(buffer) >= batchSize {
-				sendBatch(ctx, conn, buffer)
-				buffer = make([]*nats.Msg, 0, batchSize)
+				if err := sendBatch(ctx, conn, buffer); err != nil {
+					slog.Error("Cannot send batch to Clickhouse")
+				} else {
+					buffer = make([]*nats.Msg, 0, batchSize)
+				}
 			}
 		case <-ticker.C:
 			if len(buffer) > 0 {
 				slog.Warn("Таймаут истек, отправляем оставшиеся сообщения")
-				sendBatch(ctx, conn, buffer)
-				buffer = make([]*nats.Msg, 0, batchSize)
+				if err := sendBatch(ctx, conn, buffer); err != nil {
+					slog.Error("Cannot send batch to Clickhouse")
+				} else {
+					buffer = make([]*nats.Msg, 0, batchSize)
+				}
+
 			}
 		case <-ctx.Done():
 			// Handle graceful shutdown: flush any remaining messages
