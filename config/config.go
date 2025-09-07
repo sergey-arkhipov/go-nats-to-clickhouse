@@ -12,9 +12,7 @@ import (
 
 // ClickHouseConfig defines the structure for the Clickhouse connect configuration
 type ClickHouseConfig struct {
-	Hostname string `mapstructure:"hostname"`
-	Username string `mapstructure:"username"`
-	Password string `mapstructure:"password"`
+	URL string `mapstructure:"url"`
 }
 
 // NatsConfig defines the structure for the NATS connect configuration

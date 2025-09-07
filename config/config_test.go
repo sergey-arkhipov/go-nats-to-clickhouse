@@ -3,6 +3,7 @@ package config_test
 import (
 	"clhs-service/config"
 	"log"
+	"net/url"
 	"os"
 	"testing"
 
@@ -42,9 +43,7 @@ func TestLoadConfig(t *testing.T) {
 nats:
   url: nats://test:4222
 clickhouse:
-  username: default
-  password: passwd
-  hostname: host1
+  url: ch://default:passw@host1
 log:
   format: json
 subjects:
@@ -54,9 +53,9 @@ subjects:
 
 		cfg, err := config.Load(tmpFile.Name())
 		require.NoError(t, err)
-
+		ch, _ := url.Parse(cfg.ClickHouse.URL)
 		assert.Equal(t, "nats://test:4222", cfg.Nats.URL)
-		assert.Equal(t, "default", cfg.ClickHouse.Username)
+		assert.Equal(t, "default", ch.User.Username())
 		assert.Equal(t, "test.>", cfg.Subjects[0])
 	})
 
@@ -65,9 +64,7 @@ subjects:
 nats:
   url: nats://test:4222
 clickhouse:
-  username: default
-  password: passwd
-  hostname: host1
+  url: ch://default:passw@host1
 log:
   format: json
 `)
@@ -77,7 +74,7 @@ log:
 		if err := os.Setenv("NATS_URL", "nats://env:4222"); err != nil {
 			t.Fatalf("failed to set NATS_URL: %v", err)
 		}
-		if err := os.Setenv("CLICKHOUSE_HOSTNAME", "host_env"); err != nil {
+		if err := os.Setenv("CLICKHOUSE_URL", "ch://user:password@host:9111"); err != nil {
 			t.Fatalf("failed to set ENVIRONMENT: %v", err)
 		}
 		// Отменяем переменные окружения с проверкой ошибок
@@ -85,8 +82,8 @@ log:
 			if err := os.Unsetenv("NATS_URL"); err != nil {
 				t.Errorf("failed to unset NATS_URL: %v", err)
 			}
-			if err := os.Unsetenv("CLICKHOUSE_HOSTNAME"); err != nil {
-				t.Errorf("failed to unset CLICKHOUSE_HOSTNAME: %v", err)
+			if err := os.Unsetenv("CLICKHOUSE_URL"); err != nil {
+				t.Errorf("failed to unset CLICKHOUSE_URL: %v", err)
 			}
 		}()
 
@@ -94,7 +91,7 @@ log:
 		require.NoError(t, err)
 
 		assert.Equal(t, "nats://env:4222", cfg.Nats.URL)
-		assert.Equal(t, "host_env", cfg.ClickHouse.Hostname)
+		assert.Equal(t, "ch://user:password@host:9111", cfg.ClickHouse.URL)
 	})
 
 	t.Run("parse failures", func(t *testing.T) {

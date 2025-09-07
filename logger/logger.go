@@ -39,12 +39,10 @@ func ConfigBanner(cfg config.Config) {
 		slog.Info("Service started")
 	} else {
 		banner := fmt.Sprintf(
-			"\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
+			"\n%s\n%s\n%s\n%s\n%s\n%s\n",
 			color.New(color.FgHiBlue).Sprint("===== Loaded config ========"),
 			color.CyanString("%-12s: %s", "NATS_URL", cfg.Nats.URL),
-			color.CyanString("%-12s: %s", "Clickhouse host", cfg.ClickHouse.Hostname),
-			color.CyanString("%-12s: %s", "Clickhouse user", cfg.ClickHouse.Username),
-			color.CyanString("%-12s: %s", "Clickhouse pass", cfg.ClickHouse.Password),
+			color.CyanString("%-12s: %s", "Ch_URL", cfg.ClickHouse.URL),
 			color.CyanString("%-12s: %s", "Log format", cfg.Log.Format),
 			color.CyanString("%-12s: %s", "Log level", cfg.Log.Level),
 			color.New(color.FgHiBlue).Sprint("============================"),

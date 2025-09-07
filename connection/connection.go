@@ -6,8 +6,8 @@ package connection
 import (
 	"clhs-service/config"
 	"context"
-	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"time"
 
@@ -26,47 +26,22 @@ func ConnectNATS(natsURL string) *nats.Conn {
 	return nc
 }
 
-// connectToClickHouse устанавливает соединение с базой данных ClickHouse
-// func connectToClickHouse(context context.Context, config *config.ClickHouseConfig) (clickhouse.Conn, error) {
-// 	conn, err := clickhouse.Open(&clickhouse.Options{
-// 		Addr: []string{fmt.Sprintf("%s:9000", config.Hostname)},
-// 		Auth: clickhouse.Auth{
-// 			Database: "default",
-// 			Username: config.Username,
-// 			Password: config.Password,
-// 		},
-// 		ClientInfo: clickhouse.ClientInfo{
-// 			Products: []struct {
-// 				Name    string
-// 				Version string
-// 			}{
-// 				{Name: "nats-clickhouse-transfer", Version: "1"},
-// 			},
-// 		},
-// 		Settings: clickhouse.Settings{
-// 			"max_execution_time": 60,
-// 		},
-// 		Compression: &clickhouse.Compression{
-// 			Method: clickhouse.CompressionLZ4,
-// 		},
-// 	})
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if err := conn.Ping(context); err != nil {
-// 		return nil, err
-// 	}
-// 	return conn, nil
-// }
-
 // ConnectClickHouse establishes a connection to ClickHouse.
 func ConnectClickHouse(ctx context.Context, cfg *config.ClickHouseConfig) clickhouse.Conn {
+	ch, err := url.Parse(cfg.URL)
+	if err != nil {
+		slog.Error("Cannot get connection info for Clickhouse", "config", cfg)
+	}
+	host := ch.Hostname()
+	port := ch.Port()
+	username := ch.User.Username()
+	password, _ := ch.User.Password()
 	opts := &clickhouse.Options{
-		Addr: []string{fmt.Sprintf("%s:9000", cfg.Hostname)},
+		Addr: []string{host + ":" + port},
 		Auth: clickhouse.Auth{
 			Database: "default",
-			Username: cfg.Username,
-			Password: cfg.Password,
+			Username: username,
+			Password: password,
 		},
 		DialTimeout: time.Second * 30,
 		ClientInfo: clickhouse.ClientInfo{

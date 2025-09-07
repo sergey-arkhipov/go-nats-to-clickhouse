@@ -1,9 +1,7 @@
 nats:
   url: "nats://test:test@localhost:4222"
 clickhouse:
-  hostname: "localhost"
-  username: "clhs"
-  password: "password"
+  url: "ch://clhs:password@localhost:9000"
 log:
   format: "text"
   level: "info"
